@@ -3,7 +3,13 @@ import streamlit as st
 from groq import Groq
 
 from resume_parser import extract_resume_text, get_file_signals
-from agents import run_ats_agent, run_matching_agent
+from agents import (
+    run_ats_agent,
+    run_matching_agent,
+    run_resume_redesign_agent
+)
+
+from resume_builder import build_resume_docx
 
 st.set_page_config(
     page_title="AI Resume Screening",
@@ -72,7 +78,20 @@ if st.button(
             match = run_matching_agent(
                 client, model, resume_text, job_description
             )
+with st.spinner("Agent 3: Redesigning the resume..."):
+    redesigned_resume = run_resume_redesign_agent(
+        client=client,
+        model=model,
+        resume_text=resume_text,
+        job_description=job_description,
+        ats_result=ats,
+        match_result=match
+    )
 
+resume_docx = build_resume_docx(redesigned_resume)
+
+st.session_state["redesigned_resume"] = redesigned_resume
+st.session_state["resume_docx"] = resume_docx
         summary = (
             f"ATS readiness estimate: {ats['score']}/100\n"
             f"{ats['overall_assessment']}\n\n"
@@ -205,3 +224,49 @@ if report:
             file_name="hr_summary.txt",
             mime="text/plain"
         )
+st.subheader("Agent 3: Redesigned Resume")
+
+redesigned = st.session_state.get("redesigned_resume")
+
+if redesigned:
+    st.write(
+        redesigned.get("professional_summary", "")
+    )
+
+    st.markdown("### Core Skills")
+
+    st.write(
+        " | ".join(redesigned.get("core_skills", []))
+    )
+
+    st.markdown("### Professional Experience")
+
+    for job in redesigned.get("experience", []):
+        st.markdown(
+            f"**{job.get('job_title', '')} — "
+            f"{job.get('employer', '')}**"
+        )
+
+        if job.get("dates"):
+            st.caption(job["dates"])
+
+        for bullet in job.get("bullets", []):
+            st.write(f"- {bullet}")
+
+    if redesigned.get("items_to_confirm"):
+        st.warning(
+            "Please verify these details before using the resume."
+        )
+
+        for item in redesigned["items_to_confirm"]:
+            st.write(f"- {item}")
+
+    st.download_button(
+        label="Download Redesigned Resume (Word)",
+        data=st.session_state["resume_docx"],
+        file_name="redesigned_resume.docx",
+        mime=(
+            "application/vnd.openxmlformats-officedocument."
+            "wordprocessingml.document"
+        )
+    )
